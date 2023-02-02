@@ -1,0 +1,5 @@
+<launch>
+  <node pkg="PID_controller" name="chassis_controller" type="controller" output="screen">
+    <rosparam command="load" file="$(find PID_controller)/controller.yaml"/>
+  </node>
+</launch>

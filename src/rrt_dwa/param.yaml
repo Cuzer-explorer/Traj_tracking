@@ -1,0 +1,25 @@
+RobotId: 1
+expected_v: 0.8
+slow_down_dist: 0.5
+stop_dist: 0.2
+
+# rrt params
+N_SAMPLE: 1000
+robot_size: 0.2
+avoid_dist: 0.3
+steer_dist: 0.3
+allow_path_theta: 1.57   # pi / 3 * 2
+boundary_expand_dist: 2.0  # added later
+
+# dwa params
+w_max: 2.0
+wa: 10.0
+w_reso: 0.1
+safe_dist: 0.25
+penalty: 2.0
+dt: 0.08  # 0.1
+predict_time: 0.5
+delay_predict_time: 8.0
+goal_cost_gain: 5.0
+dist_cost_gain: 0.5
+global_path_cost_gain: 20.0

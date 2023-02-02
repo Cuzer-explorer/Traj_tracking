@@ -1,0 +1,33 @@
+# vehicle params
+max_v: 1.5
+max_w: 1
+
+# pid controller
+AUTO_MODE: 1
+control_rate: 0.1
+
+v_pid_mode: 0   # 0: position, 1: delta
+v_kp: 0.8
+v_ki: 0.1
+v_kd: 0
+max_v_iout: 1
+
+w_pid_mode: 0
+w_kp: 0.8
+w_ki: 0.05
+w_kd: 0
+max_w_iout: 0.5
+
+
+# names of topics to listen to
+# location_topic: "/gps_pose_vel"
+# target_vel_topic: "/teb_feedback"  # for teb
+target_vel_topic: "/target_vel"  # for dwa
+feedback_vel_topic: "/velocity_info"
+
+# names of topics to publish to
+pub_vel_topic: "/cmd_vel"
+
+# debug
+# debug_vel: 0.2
+# debug_angle: 0

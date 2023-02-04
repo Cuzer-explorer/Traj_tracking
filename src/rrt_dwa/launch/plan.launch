@@ -1,7 +1,9 @@
 <launch>
   <rosparam command="load" file="$(find rrt_dwa)/param.yaml"/>
-  <param name = "laser_topic" type = "string" value = "/ouster/points"/>
-  <param name = "vel_pub_topic" type = "string" value = "/target_vel"/>
+  <!-- <param name = "laser_topic" type = "string" value = "/ouster/points"/> -->
+  <param name = "laser_topic" type = "string" value = "/scan"/>
+  <!-- <param name = "vel_pub_topic" type = "string" value = "/target_vel"/> -->
+  <param name = "vel_pub_topic" type = "string" value = "/cmd_vel"/>
   <node pkg="rrt_dwa" name="RRT_DWA_plan" type="plan" output="screen">
   </node>
 </launch>

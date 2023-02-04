@@ -15,7 +15,7 @@
 // **************** test in BARN ****************** //
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_types.h>
-//#include <sensor_msgs/LaserScan.h>
+#include <sensor_msgs/LaserScan.h>
 //#include <gazebo_msgs/GetModelState.h>
 // ******************************************** //
 
@@ -30,6 +30,7 @@ using pointVec = std::vector< point_t >;
 ros::Subscriber poseVel_sub;
 ros::Subscriber dstPoint_sub;
 ros::Subscriber laser_sub; // obst added
+ros::Publisher rviz_laser_pub; // ground obst tested
 ros::Publisher vel_pub, path_pub, traj_pub, midpose_pub;
 
 int got_obst;
@@ -60,11 +61,12 @@ double rrt_avoid_dist, rrt_boundary_expand_dist;
 
 void CB_publishCycle(const ros::TimerEvent& e);
 // void CB_dstPoint(const nav_msgs::Odometry::ConstPtr& odom_msg);
-void CB_dstPoint(const geometry_msgs::Pose::ConstPtr& pose_msg);
+// void CB_dstPoint(const geometry_msgs::Pose::ConstPtr& pose_msg);
+void CB_dstPoint(const geometry_msgs::PoseStamped::ConstPtr& pose_msg);
 void CB_update_vel(const geometry_msgs::TwistStamped::ConstPtr& vel_msg);
 // **************** test in BARN ****************** //
-void CB_laser(const sensor_msgs::PointCloud2::ConstPtr &scan_msg);
-// void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan);
+// void CB_laser(const sensor_msgs::PointCloud2::ConstPtr &scan_msg);
+void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan);
 // ******************************************** //
 void get_mid_goal(int &goal_index, const double &threshold);
 void display_PathandTraj(pointVec path, ros::Publisher visual_pub);
@@ -93,11 +95,13 @@ int main(int argc, char** argv)
     // state_client = n.serviceClient<gazebo_msgs::GetModelState>("/gazebo/get_model_state");
     // ******************************************** //
     poseVel_sub = n.subscribe("/velocity_info", 1, CB_update_vel);
-    dstPoint_sub = n.subscribe("/dst_point", 1, CB_dstPoint);  // aero
+    // dstPoint_sub = n.subscribe("/dst_point", 1, CB_dstPoint);  // aero
+    dstPoint_sub = n.subscribe("/move_base_simple/goal", 1, CB_dstPoint);  // aero
     // laser_sub = n.subscribe<sensor_msgs::PointCloud2>("/os_cloud_node/points", 10, CB_laser);
     // laser_sub = n.subscribe("/ouster/points", 10, CB_laser);
     // laser_sub = n.subscribe("/robot_2/pointcloud", 10, CB_laser);
     laser_sub = n.subscribe(laser_topic, 10, CB_laser);
+    // rviz_laser_pub = n.advertise<sensor_msgs::LaserScan>(laser_pub_topic, 10);
 
     // vel_pub = n.advertise<geometry_msgs::Twist>("target_vel", 10);
     vel_pub = n.advertise<geometry_msgs::Twist>(vel_pub_topic, 10);
@@ -236,12 +240,14 @@ void CB_publishCycle(const ros::TimerEvent& e)
 }
 
 // void CB_dstPoint(const nav_msgs::Odometry::ConstPtr& odom_msg)  // 目标点
-void CB_dstPoint(const geometry_msgs::Pose::ConstPtr& pose_msg)  // 目标点
+// void CB_dstPoint(const geometry_msgs::Pose::ConstPtr& pose_msg)  // 目标点
+void CB_dstPoint(const geometry_msgs::PoseStamped::ConstPtr& pose_msg)  // 目标点
 {
+    cout << "get dst_point!" << endl;
     // double theta = tf::getYaw(odom_msg->pose.pose.orientation);
     // dst_pose = {odom_msg->pose.pose.position.x, odom_msg->pose.pose.position.y, theta};
-    double theta = tf::getYaw(pose_msg->orientation);
-    dst_pose = {pose_msg->position.x, pose_msg->position.y, theta};
+    double theta = tf::getYaw(pose_msg->pose.orientation);
+    dst_pose = {pose_msg->pose.position.x, pose_msg->pose.position.y, theta};
     // dst_pose = {odom_msg->pose.pose.position.x, odom_msg->pose.pose.position.y, 0};
     // expected_v = odom_msg->twist.twist.linear.x;
     double dstPoint_ori = atan2(dst_pose[1]-self_pose[1], dst_pose[0]-self_pose[0]) - self_pose[2]; // 夹角
@@ -345,127 +351,130 @@ void get_mid_goal(int &goal_index, const double &threshold)
 
 
 // **************** test in BARN ****************** //
-// void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan_msg)  // 激光
-// {
-//     static tf::TransformListener tf_listener;
-//     double obst_dist = 5.0;
-
-//     obstacle.clear();
-
-//     int scan_size = scan_msg->ranges.size();
-//     // cout << "angle_min: " << scan_msg->angle_min << endl;
-//     // cout << "angle_max: " << scan_msg->angle_max << endl;
-//     // cout << "angle_increment: " << scan_msg->angle_increment << endl;
-//     // cout << "range_min: " << scan_msg->range_min << endl;
-//     // cout << "range_max: " << scan_msg->range_max << endl;
-
-//     int last_i;
-//     for(int i = 0; i < scan_size; i++)  // for one point
-//     // for(int i = 0; i < scan_size; i+=5)  // for one point
-//     {
-//         double range = scan_msg->ranges[i];
-
-//         // cout << "range " << i << ": " << range << ", ";
-
-//         if( isinf(range) || isnan(range) )
-//         {
-//             continue;
-//         }
-//         else if( range < obst_dist )  // in the inflation range
-//         {
-//             // only consider obst in front of car
-//             if(scan_msg->angle_min + i*scan_msg->angle_increment < -M_PI/2  ||  scan_msg->angle_min + i*scan_msg->angle_increment > M_PI/2)
-//                 continue;
-            
-//             double angle = scan_msg->angle_min + i * (scan_msg->angle_increment);
-//             double x = range * cos(angle);
-//             double y = range * sin(angle);
-
-//             geometry_msgs::PointStamped obst_in_laser;
-//             geometry_msgs::PointStamped obst_in_world;
-
-//             obst_in_laser.header.stamp = ros::Time();
-//             // obst_in_laser.header.frame_id = scan_msg->header.frame_id;  // laser
-//             obst_in_laser.header.frame_id = "/base_link";  // laser
-//             obst_in_laser.point.x = x;
-//             obst_in_laser.point.y = y;
-//             obst_in_laser.point.z = 0;
-//             try{
-//                 tf_listener.transformPoint("/map", obst_in_laser, obst_in_world);
-//             }
-//             catch (tf::TransformException &ex){
-//                 ROS_ERROR("%s, in CB_laser.", ex.what());
-//                 return;
-//             }
-
-//             obstacle.push_back({obst_in_world.point.x, obst_in_world.point.y});
-//         }
-//         else
-//         {
-//             continue;
-//         }
-//     }
-
-//     // got_obst = 1;
-// }
-
-void CB_laser(const sensor_msgs::PointCloud2::ConstPtr& scan_msg)  // 激光
+void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan_msg)  // 激光
 {
     static tf::TransformListener tf_listener;
-    // vector<vector<double>> scan_points;
-
-    pcl::PointCloud<pcl::PointXYZ> temp_pcl;
-    pcl::fromROSMsg(*scan_msg, temp_pcl);
-    double obst_dist = 5.0, blind = 0.01;
-    int point_filter_num = 5;
+    double obst_dist = 5.0;
 
     obstacle.clear();
 
-    for (int i = 0; i < temp_pcl.points.size(); i++)
+    int scan_size = scan_msg->ranges.size();
+    // cout << "angle_min: " << scan_msg->angle_min << endl;
+    // cout << "angle_max: " << scan_msg->angle_max << endl;
+    // cout << "angle_increment: " << scan_msg->angle_increment << endl;
+    // cout << "range_min: " << scan_msg->range_min << endl;
+    // cout << "range_max: " << scan_msg->range_max << endl;
+
+    int last_i;
+    for(int i = 0; i < scan_size; i++)  // for one point
+    // for(int i = 0; i < scan_size; i+=5)  // for one point
     {
-        if (i % point_filter_num != 0) continue;
-        // cout << "obst size: " << temp_pcl.points.size() << endl;
-        // cout << "obst x,y,z: " << temp_pcl.points[i].x << ", " << temp_pcl.points[i].y << ", " << temp_pcl.points[i].z << endl;
+        double range = scan_msg->ranges[i];
 
-        double range = temp_pcl.points[i].x * temp_pcl.points[i].x + temp_pcl.points[i].y * temp_pcl.points[i].y + temp_pcl.points[i].z * temp_pcl.points[i].z;
-        
-        // only consider range < 5.0m
-        if (range < (blind * blind) || range > (obst_dist * obst_dist) || temp_pcl.points[i].z < -0.2)  continue;
-        
-        // PointType added_pt;
-        // added_pt.x = temp_pcl.points[i].x;
-        // added_pt.y = temp_pcl.points[i].y;
-        // added_pt.z = temp_pcl.points[i].z;
-        // // added_pt.intensity = temp_pcl.points[i].intensity;
-        // // added_pt.normal_x = 0;
-        // // added_pt.normal_y = 0;
-        // // added_pt.normal_z = 0;
-        // // added_pt.curvature = temp_pcl.points[i].t * time_unit_scale; // curvature unit: ms
+        // cout << "range " << i << ": " << range << ", ";
 
-        geometry_msgs::PointStamped temp_obst_xyz_in_laser;
-        geometry_msgs::PointStamped temp_obstPoint_in_odom;
-
-        temp_obst_xyz_in_laser.header.stamp = ros::Time();
-        // temp_obst_xyz_in_laser.header.frame_id = scan_msg->header.frame_id;  // laser
-        temp_obst_xyz_in_laser.header.frame_id = "robot_"+to_string(RobotId)+"/base";  // laser
-        // cout << "scan_frame: " << scan_msg->header.frame_id << endl;
-        temp_obst_xyz_in_laser.point.x = temp_pcl.points[i].x;
-        temp_obst_xyz_in_laser.point.y = temp_pcl.points[i].y;
-        temp_obst_xyz_in_laser.point.z = temp_pcl.points[i].z;
-        try{
-            tf_listener.transformPoint("robot_"+to_string(RobotId)+"/odom", temp_obst_xyz_in_laser, temp_obstPoint_in_odom);
+        if( isinf(range) || isnan(range) )
+        {
+            continue;
         }
-        catch (tf::TransformException &ex){
-            ROS_ERROR("%s, in CB_laser.", ex.what());
-            return;
-        }
+        else if( range < obst_dist )  // in the inflation range
+        {
+            // only consider obst in front of car
+            // if(scan_msg->angle_min + i*scan_msg->angle_increment < -M_PI/2  ||  scan_msg->angle_min + i*scan_msg->angle_increment > M_PI/2)
+            //     continue;
+            
+            double angle = scan_msg->angle_min + i * (scan_msg->angle_increment);
+            double x = range * cos(angle);
+            double y = range * sin(angle);
 
-        // scan_points.push_back(p);  // all points, ( (x0,y0), (x1,y1), ... )
-        obstacle.push_back({temp_obstPoint_in_odom.point.x, temp_obstPoint_in_odom.point.y});
+            geometry_msgs::PointStamped obst_in_laser;
+            geometry_msgs::PointStamped obst_in_world;
+
+            obst_in_laser.header.stamp = ros::Time();
+            // obst_in_laser.header.frame_id = scan_msg->header.frame_id;  // laser
+            // obst_in_laser.header.frame_id = "/base_link";  // laser
+            obst_in_laser.header.frame_id = "robot_"+to_string(RobotId)+"/base";  // laser
+            obst_in_laser.point.x = x;
+            obst_in_laser.point.y = y;
+            obst_in_laser.point.z = 0;
+            try{
+                // tf_listener.transformPoint("/map", obst_in_laser, obst_in_world);
+                tf_listener.transformPoint("robot_"+to_string(RobotId)+"/odom", obst_in_laser, obst_in_world);
+            }
+            catch (tf::TransformException &ex){
+                ROS_ERROR("%s, in CB_laser.", ex.what());
+                return;
+            }
+
+            obstacle.push_back({obst_in_world.point.x, obst_in_world.point.y});
+        }
+        else
+        {
+            continue;
+        }
     }
 
-    got_obst = 1;
+    // got_obst = 1;
 }
+
+// void CB_laser(const sensor_msgs::PointCloud2::ConstPtr& scan_msg)  // 激光
+// {
+//     static tf::TransformListener tf_listener;
+//     // vector<vector<double>> scan_points;
+
+//     pcl::PointCloud<pcl::PointXYZ> temp_pcl;
+//     pcl::fromROSMsg(*scan_msg, temp_pcl);
+//     double obst_dist = 5.0, blind = 0.01;
+//     int point_filter_num = 5;
+
+//     obstacle.clear();
+
+//     for (int i = 0; i < temp_pcl.points.size(); i++)
+//     {
+//         if (i % point_filter_num != 0) continue;
+//         // cout << "obst size: " << temp_pcl.points.size() << endl;
+//         // cout << "obst x,y,z: " << temp_pcl.points[i].x << ", " << temp_pcl.points[i].y << ", " << temp_pcl.points[i].z << endl;
+
+//         double range = temp_pcl.points[i].x * temp_pcl.points[i].x + temp_pcl.points[i].y * temp_pcl.points[i].y + temp_pcl.points[i].z * temp_pcl.points[i].z;
+        
+//         // only consider range < 5.0m
+//         if (range < (blind * blind) || range > (obst_dist * obst_dist) || temp_pcl.points[i].z < -0.4 || temp_pcl.points[i].z > 0.1)
+//             continue;
+        
+//         // PointType added_pt;
+//         // added_pt.x = temp_pcl.points[i].x;
+//         // added_pt.y = temp_pcl.points[i].y;
+//         // added_pt.z = temp_pcl.points[i].z;
+//         // // added_pt.intensity = temp_pcl.points[i].intensity;
+//         // // added_pt.normal_x = 0;
+//         // // added_pt.normal_y = 0;
+//         // // added_pt.normal_z = 0;
+//         // // added_pt.curvature = temp_pcl.points[i].t * time_unit_scale; // curvature unit: ms
+
+//         geometry_msgs::PointStamped temp_obst_xyz_in_laser;
+//         geometry_msgs::PointStamped temp_obstPoint_in_odom;
+
+//         temp_obst_xyz_in_laser.header.stamp = ros::Time();
+//         // temp_obst_xyz_in_laser.header.frame_id = scan_msg->header.frame_id;  // laser
+//         temp_obst_xyz_in_laser.header.frame_id = "robot_"+to_string(RobotId)+"/base";  // laser
+//         // cout << "scan_frame: " << scan_msg->header.frame_id << endl;
+//         temp_obst_xyz_in_laser.point.x = temp_pcl.points[i].x;
+//         temp_obst_xyz_in_laser.point.y = temp_pcl.points[i].y;
+//         temp_obst_xyz_in_laser.point.z = temp_pcl.points[i].z;
+//         try{
+//             tf_listener.transformPoint("robot_"+to_string(RobotId)+"/odom", temp_obst_xyz_in_laser, temp_obstPoint_in_odom);
+//         }
+//         catch (tf::TransformException &ex){
+//             ROS_ERROR("%s, in CB_laser.", ex.what());
+//             return;
+//         }
+
+//         // scan_points.push_back(p);  // all points, ( (x0,y0), (x1,y1), ... )
+//         obstacle.push_back({temp_obstPoint_in_odom.point.x, temp_obstPoint_in_odom.point.y});
+//     }
+
+//     got_obst = 1;
+// }
 
 
 void display_PathandTraj(pointVec path, ros::Publisher visual_pub){  // 在 Rviz 中显示 RRT 与 DWA 路径

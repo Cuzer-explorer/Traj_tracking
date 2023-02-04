@@ -157,6 +157,9 @@ include_directories(/usr/include/pcl-1.8)
 add_executable (plan src/plan.cpp src/rrt.cpp src/dwa.cpp src/KDTree.cpp)
 target_link_libraries (plan ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 
+add_executable (plan_rrt src/plan_rrt.cpp src/rrt.cpp src/dwa.cpp src/KDTree.cpp)
+target_link_libraries (plan_rrt ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+
 #############
 ## Install ##
 #############

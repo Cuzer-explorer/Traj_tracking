@@ -63,15 +63,8 @@ void CB_publishCycle(const ros::TimerEvent& e);
 // void CB_dstPoint(const nav_msgs::Odometry::ConstPtr& odom_msg);
 // void CB_dstPoint(const geometry_msgs::Pose::ConstPtr& pose_msg);
 void CB_dstPoint(const geometry_msgs::PoseStamped::ConstPtr& pose_msg);
-void CB_update_vel(const geometry_msgs::TwistStamped::ConstPtr& vel_msg);
-// **************** test in BARN ****************** //
-// void CB_laser(const sensor_msgs::PointCloud2::ConstPtr &scan_msg);
 void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan);
-// ******************************************** //
-void get_mid_goal(int &goal_index, const double &threshold);
 void display_PathandTraj(pointVec path, ros::Publisher visual_pub);
-void display_midGoal(point_t mid_goal, ros::Publisher visual_pub);
-
 
 int main(int argc, char** argv)
 {
@@ -86,7 +79,7 @@ int main(int argc, char** argv)
     ros::param::get("slow_down_dist", slow_down_dist);
     ros::param::get("stop_dist", stop_dist);
     ros::param::get("laser_topic", laser_topic);
-    ros::param::get("vel_pub_topic", vel_pub_topic);
+    // ros::param::get("vel_pub_topic", vel_pub_topic);
     ros::Timer publish_timer = n.createTimer(ros::Duration(0.1), CB_publishCycle);
     global_planner.load_param();
     local_planner.load_param();
@@ -94,7 +87,6 @@ int main(int argc, char** argv)
     // **************** test in BARN ****************** //
     // state_client = n.serviceClient<gazebo_msgs::GetModelState>("/gazebo/get_model_state");
     // ******************************************** //
-    poseVel_sub = n.subscribe("/velocity_info", 1, CB_update_vel);
     // dstPoint_sub = n.subscribe("/dst_point", 1, CB_dstPoint);  // aero
     dstPoint_sub = n.subscribe("/move_base_simple/goal", 1, CB_dstPoint);  // aero
     // laser_sub = n.subscribe<sensor_msgs::PointCloud2>("/os_cloud_node/points", 10, CB_laser);
@@ -103,48 +95,19 @@ int main(int argc, char** argv)
     laser_sub = n.subscribe(laser_topic, 10, CB_laser);
     // rviz_laser_pub = n.advertise<sensor_msgs::LaserScan>(laser_pub_topic, 10);
 
-    // vel_pub = n.advertise<geometry_msgs::Twist>("target_vel", 10);
-    vel_pub = n.advertise<geometry_msgs::Twist>(vel_pub_topic, 10);
+    // // vel_pub = n.advertise<geometry_msgs::Twist>("target_vel", 10);
+    // vel_pub = n.advertise<geometry_msgs::Twist>(vel_pub_topic, 10);
     path_pub = n.advertise<nav_msgs::Path>("rrt_path", 10);
     traj_pub = n.advertise<nav_msgs::Path>("dwa_traj", 10);
     midpose_pub = n.advertise<geometry_msgs::PoseStamped>("/course_agv/mid_goal", 10);
 
-    // ------------------------ debug ------------------------ //
-    // self_pose = {0,0,0};
-    // dst_pose = {5,5,0};
-    self_pose = {0,0,0};
-    dst_pose = {0,0,0};
-    
-    int goal_index = 0;  // 用于计算局部目标点
-    double threshold = 1.5 * v_in_yaml * dwa_predict_time; // 局部目标点距离
-    local_planner.set_v(0.0);  // DWA 线速度设为定值, init to 0
-    // ------------------------------------------------------- //
-
-    int count=0;
     ros::Rate r(5);
     while(ros::ok()){
         ros::spinOnce();
         // cout << "obst_size: " << obstacle.size() << endl;
         chrono::time_point<chrono::system_clock> start_time = chrono::system_clock::now();
         /// 获取定位 ///
-        // **************** test in BARN ****************** //
-        // ros::service::waitForService("/gazebo/get_model_state");
-        // gazebo_msgs::GetModelState model_state;
-        // model_state.request.model_name = "jackal";
-        // model_state.request.relative_entity_name = "world";
-        // state_client.call(model_state);
-        // if (model_state.response.success == 0){
-        //     cout << "call model_state failed!" << endl;
-        //     continue;
-        // }
-        // // cout << "time2: " << ros::Time::now() << endl;
-
-        // self_pose[0] = model_state.response.pose.position.x;
-        // self_pose[1] = model_state.response.pose.position.y;
-        // self_pose[2] = tf::getYaw(model_state.response.pose.orientation);
-        // // cout << "yaw: " << self_pose[2] << endl;
-        // self_w = model_state.response.twist.angular.z;
-
+        
         static tf::TransformListener tf_listener;
         try{
             tf_listener.lookupTransform("robot_"+to_string(RobotId)+"/odom", "robot_"+to_string(RobotId)+"/base", ros::Time(0), base_in_odom);
@@ -157,90 +120,11 @@ int main(int argc, char** argv)
         tf::quaternionTFToMsg(base_in_odom.getRotation(), orientation);
         double yaw_now = tf::getYaw(orientation);
         self_pose = {base_in_odom.getOrigin().x(), base_in_odom.getOrigin().y(), yaw_now};
-        
-        
-        if (path.size() == 0){
-            continue;
-        }
-        ///  DWA 选取最优角速度  ///
-        // -----------------------------------------------------
-        double dstPoint_dist = hypot(dst_pose[0]-self_pose[0], dst_pose[1]-self_pose[1]); // 距离
-        if (dstPoint_dist < slow_down_dist && dstPoint_dist > stop_dist){  // 减速
-            expected_v = ori_sign * v_in_yaml * dstPoint_dist/slow_down_dist;
-            if (abs(expected_v) < 0.2)
-                expected_v = ori_sign*0.2;
-            local_planner.set_v(expected_v);
-        }
-
-        double dstPosition_angle = atan2(dst_pose[1]-self_pose[1], dst_pose[0]-self_pose[0]) - self_pose[2]; // 目标点到当前点与车头夹角
-        if (dstPosition_angle > M_PI)
-            dstPosition_angle -= 2*M_PI;
-        else if (dstPosition_angle < -M_PI)
-            dstPosition_angle += 2*M_PI;
-        
-        double dstOri_angle = dst_pose[2] - self_pose[2]; // 目标朝向与车头夹角
-        if (dstOri_angle > M_PI)
-            dstOri_angle -= 2*M_PI;
-        else if (dstOri_angle < -M_PI)
-            dstOri_angle += 2*M_PI;
-
-
-        if (dstPoint_dist < stop_dist){  // 停车距离内，停车
-            expected_v = 0;
-            local_planner.set_v(expected_v);
-            // expected_w = 0;
-            // 停车后原地转到目标朝向
-            if (dstOri_angle > M_PI/16)
-                expected_w = 0.2;
-            else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.2;
-            else
-                expected_w = 0;
-        }
-        else if (is_forward && abs(dstPosition_angle) > M_PI/2){  // 走过点，停车
-            expected_v = 0;
-            local_planner.set_v(expected_v);
-            // expected_w = 0;
-            // 停车后原地转到目标朝向
-            if (dstOri_angle > M_PI/16)
-                expected_w = 0.2;
-            else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.2;
-            else
-                expected_w = 0;
-            // cout << "run over!" << endl;
-        }
-        else if(not is_forward && abs(dstPosition_angle) < M_PI/2){
-            expected_v = 0;
-            local_planner.set_v(expected_v);
-            // expected_w = 0;
-            // 停车后原地转到目标朝向
-            if (dstOri_angle > M_PI/16)
-                expected_w = 0.2;
-            else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.2;
-            else
-                expected_w = 0;
-        }
-        else{
-            if (!find_path)
-                continue;
-            get_mid_goal(goal_index, threshold);
-            wAndTraj = local_planner.control_trajectory(self_pose, self_w, mid_goal, obstacle, 0);
-            // self_w = wAndTraj.first;
-            expected_w = wAndTraj.first;
-            traj = wAndTraj.second;
-            // local_planner.check_param();
-        }
-        // -----------------------------------------------------
-
-        // 在 Rviz 中显示 DWA 路径
-        // display_PathandTraj(traj, traj_pub);
 
         chrono::time_point<chrono::system_clock> end_time = chrono::system_clock::now();
         // cout << "main_cycle: " << chrono::duration_cast<chrono::milliseconds>(end_time-start_time).count() / 1000.0 << "s" << endl;
 
-        // r.sleep();
+        r.sleep();
     }
 }
 
@@ -249,22 +133,6 @@ void CB_publishCycle(const ros::TimerEvent& e)
 {
     if (path.size())
         display_PathandTraj(path, path_pub);
-    if (mid_goal.size())
-        display_midGoal(mid_goal, midpose_pub);
-
-    if (traj.size()){
-        display_PathandTraj(traj, traj_pub);
-
-        geometry_msgs::Twist target_vel;
-        if (abs(expected_w) >= 0.5)  // 转弯时降低线速度
-            target_vel.linear.x = 0.3*expected_v;
-        else if (abs(expected_w) >= 0.2)
-            target_vel.linear.x = 0.5*expected_v;
-        else
-            target_vel.linear.x = expected_v;
-        target_vel.angular.z = expected_w;
-        vel_pub.publish(target_vel);
-    }
 }
 
 // void CB_dstPoint(const nav_msgs::Odometry::ConstPtr& odom_msg)  // 目标点
@@ -328,54 +196,6 @@ void CB_dstPoint(const geometry_msgs::PoseStamped::ConstPtr& pose_msg)  // 目�
     // display_PathandTraj(path, path_pub);
 }
 
-
-void  CB_update_vel(const geometry_msgs::TwistStamped::ConstPtr& vel_msg)  // 速度反馈
-{
-    self_w = vel_msg->twist.angular.z;
-}
-
-
-void get_mid_goal(int &goal_index, const double &threshold)
-{
-    // 动态选取局部目标点
-    int idx = goal_index;
-    goal_index = path.size() - 1;
-    // ——————————————————————————————————————————————
-    // cout << "goal_index: " << goal_index << endl;
-    while (idx < path.size()){
-        double dis = hypot(path[idx][0]-self_pose[0], path[idx][1]-self_pose[1]);
-        if (dis >= threshold){
-            goal_index = idx;
-            break;
-        }
-        idx++;
-    }
-
-    mid_goal = path[goal_index];
-    // if (goal_dis >= threshold)
-    double step_forward = 0.1;
-    double front_point_x = path[goal_index][0];
-    double front_point_y = path[goal_index][1];
-    double back_point_x = path[goal_index-1][0];
-    double back_point_y = path[goal_index-1][1];
-    // print("front_x: %.2f, front_y: %.2f" % (front_point_x, front_point_y))
-    // print("back_x: %.2f, back_y: %.2f" % (back_point_x, back_point_y))
-    double front_to_back_dist = hypot(front_point_x - back_point_x,
-                                    front_point_y - back_point_y);
-    double ratio, temp_x, temp_y;
-
-    int temp_count = int(front_to_back_dist / step_forward);
-    for (int i=0; i<temp_count; i++){  // 从远至近找局部目标点
-        ratio = (i+1) * step_forward / front_to_back_dist;
-        temp_x = front_point_x + (back_point_x-front_point_x) * ratio;
-        temp_y = front_point_y + (back_point_y-front_point_y) * ratio;
-        if (hypot(temp_x-self_pose[0], temp_y-self_pose[1]) <= threshold){
-            break;
-        }
-    }
-    mid_goal[0] = temp_x;
-    mid_goal[1] = temp_y;
-}
 
 
 // **************** test in BARN ****************** //
@@ -525,15 +345,3 @@ void display_PathandTraj(pointVec path, ros::Publisher visual_pub){  // 在 Rviz
     visual_pub.publish(visual_path);
 }
 
-void display_midGoal(point_t mid_goal, ros::Publisher visual_pub){  // Rviz 中显示局部目标点
-    geometry_msgs::PoseStamped  mid_goal_msg;
-    mid_goal_msg.header.stamp = ros::Time(0);
-    // **************** test in BARN ****************** //
-    mid_goal_msg.header.frame_id = "robot_"+to_string(RobotId)+"/odom";
-    // mid_goal_msg.header.frame_id = "/map";
-    mid_goal_msg.pose.position.x = mid_goal[0];
-    mid_goal_msg.pose.position.y = mid_goal[1];
-    mid_goal_msg.pose.orientation.w = 1;
-
-    visual_pub.publish(mid_goal_msg);
-}

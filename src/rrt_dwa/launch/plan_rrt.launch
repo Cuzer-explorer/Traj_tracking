@@ -1,0 +1,7 @@
+<launch>
+  <rosparam command="load" file="$(find rrt_dwa)/param.yaml"/>
+  <!-- <param name = "laser_topic" type = "string" value = "/ouster/points"/> -->
+  <param name = "laser_topic" type = "string" value = "/scan"/>
+  <node pkg="rrt_dwa" name="RRT_plan" type="plan_rrt" output="screen">
+  </node>
+</launch>

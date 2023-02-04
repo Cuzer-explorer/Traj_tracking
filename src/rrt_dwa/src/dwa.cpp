@@ -104,7 +104,7 @@ double DWA::distance_cost(vector<vector<double>> &traj, pointVec &obstacle){
     
     if (min_distance <= safe_dist)
         factor = penalty;  // 惩罚项
-    else if (min_distance <= safe_dist + 0.1)
+    else if (min_distance <= safe_dist + 0.2)
         factor = 1;
     else
         factor = 0;
@@ -136,8 +136,8 @@ pair<double, vector<vector<double>>>  DWA::control_trajectory(vector<double> &x,
         // vel_cost = velocity_cost(v);
         if (obstacle.size())
             dist_cost = distance_cost(traj, obstacle);
-        // cost = g_cost * goal_cost_gain + dist_cost * dist_cost_gain;
-        cost = g_cost * goal_cost_gain;
+        cost = g_cost * goal_cost_gain + dist_cost * dist_cost_gain;
+        // cost = g_cost * goal_cost_gain;
         
         if (cost < best_cost){
             best_cost = cost;

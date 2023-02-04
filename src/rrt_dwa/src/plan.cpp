@@ -191,9 +191,9 @@ int main(int argc, char** argv)
             // expected_w = 0;
             // 停车后原地转到目标朝向
             if (dstOri_angle > M_PI/16)
-                expected_w = 0.2;
+                expected_w = 0.5;
             else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.2;
+                expected_w = -0.5;
             else
                 expected_w = 0;
         }
@@ -203,9 +203,9 @@ int main(int argc, char** argv)
             // expected_w = 0;
             // 停车后原地转到目标朝向
             if (dstOri_angle > M_PI/16)
-                expected_w = 0.2;
+                expected_w = 0.5;
             else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.2;
+                expected_w = -0.5;
             else
                 expected_w = 0;
             // cout << "run over!" << endl;
@@ -216,9 +216,9 @@ int main(int argc, char** argv)
             // expected_w = 0;
             // 停车后原地转到目标朝向
             if (dstOri_angle > M_PI/16)
-                expected_w = 0.2;
+                expected_w = 0.5;
             else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.2;
+                expected_w = -0.5;
             else
                 expected_w = 0;
         }
@@ -247,8 +247,8 @@ int main(int argc, char** argv)
 
 void CB_publishCycle(const ros::TimerEvent& e)
 {
-    if (path.size())
-        display_PathandTraj(path, path_pub);
+    // if (path.size())
+    //     display_PathandTraj(path, path_pub);
     if (mid_goal.size())
         display_midGoal(mid_goal, midpose_pub);
 
@@ -257,9 +257,9 @@ void CB_publishCycle(const ros::TimerEvent& e)
 
         geometry_msgs::Twist target_vel;
         if (abs(expected_w) >= 0.5)  // 转弯时降低线速度
-            target_vel.linear.x = 0.3*expected_v;
-        else if (abs(expected_w) >= 0.2)
             target_vel.linear.x = 0.5*expected_v;
+        else if (abs(expected_w) >= 0.2)
+            target_vel.linear.x = 0.7*expected_v;
         else
             target_vel.linear.x = expected_v;
         target_vel.angular.z = expected_w;
@@ -325,7 +325,7 @@ void CB_dstPoint(const geometry_msgs::PoseStamped::ConstPtr& pose_msg)  // 目�
         // cout << "Path searching failed in the condition avoid_dist >= 0.1! Please assign destination point again!" << endl;
     }
     
-    // display_PathandTraj(path, path_pub);
+    display_PathandTraj(path, path_pub);
 }
 
 
@@ -414,6 +414,9 @@ void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan_msg)  // 激光
             double angle = scan_msg->angle_min + i * (scan_msg->angle_increment);
             double x = range * cos(angle);
             double y = range * sin(angle);
+
+            if (x>-0.42 && x<0.17 && y>-0.24 && y<0.24) // 车体范围内
+                continue;
 
             geometry_msgs::PointStamped obst_in_laser;
             geometry_msgs::PointStamped obst_in_world;

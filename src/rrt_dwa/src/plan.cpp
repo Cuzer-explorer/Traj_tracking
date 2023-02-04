@@ -184,44 +184,44 @@ int main(int argc, char** argv)
         else if (dstOri_angle < -M_PI)
             dstOri_angle += 2*M_PI;
 
-
+        double dstOri_threshold = M_PI/16, terminal_w = 0.8;
         if (dstPoint_dist < stop_dist){  // 停车距离内，停车
             expected_v = 0;
             local_planner.set_v(expected_v);
             // expected_w = 0;
             // 停车后原地转到目标朝向
-            if (dstOri_angle > M_PI/16)
-                expected_w = 0.5;
-            else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.5;
+            if (dstOri_angle > dstOri_threshold)
+                expected_w = terminal_w;
+            else if (dstOri_angle < -1*dstOri_threshold)
+                expected_w = -1*terminal_w;
             else
                 expected_w = 0;
         }
-        else if (is_forward && abs(dstPosition_angle) > M_PI/2){  // 走过点，停车
-            expected_v = 0;
-            local_planner.set_v(expected_v);
-            // expected_w = 0;
-            // 停车后原地转到目标朝向
-            if (dstOri_angle > M_PI/16)
-                expected_w = 0.5;
-            else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.5;
-            else
-                expected_w = 0;
-            // cout << "run over!" << endl;
-        }
-        else if(not is_forward && abs(dstPosition_angle) < M_PI/2){
-            expected_v = 0;
-            local_planner.set_v(expected_v);
-            // expected_w = 0;
-            // 停车后原地转到目标朝向
-            if (dstOri_angle > M_PI/16)
-                expected_w = 0.5;
-            else if (dstOri_angle < -M_PI/16)
-                expected_w = -0.5;
-            else
-                expected_w = 0;
-        }
+        // else if (is_forward && abs(dstPosition_angle) > M_PI/2){  // 走过点，停车
+        //     expected_v = 0;
+        //     local_planner.set_v(expected_v);
+        //     // expected_w = 0;
+        //     // 停车后原地转到目标朝向
+        //     if (dstOri_angle > dstOri_threshold)
+        //         expected_w = terminal_w;
+        //     else if (dstOri_angle < -1*dstOri_threshold)
+        //         expected_w = -1*terminal_w;
+        //     else
+        //         expected_w = 0;
+        //     // cout << "run over!" << endl;
+        // }
+        // else if(not is_forward && abs(dstPosition_angle) < M_PI/2){
+        //     expected_v = 0;
+        //     local_planner.set_v(expected_v);
+        //     // expected_w = 0;
+        //     // 停车后原地转到目标朝向
+        //     if (dstOri_angle > dstOri_threshold)
+        //         expected_w = terminal_w;
+        //     else if (dstOri_angle < -1*dstOri_threshold)
+        //         expected_w = -1*terminal_w;
+        //     else
+        //         expected_w = 0;
+        // }
         else{
             if (!find_path)
                 continue;

@@ -46,15 +46,18 @@ double self_w = 0;
 bool is_forward = true;
 int ori_sign;
 double v_in_yaml, expected_v, expected_w;
-double slow_down_dist, stop_dist;
+double slow_down_dist, stop_dist, start_w, terminal_w;
 double dwa_predict_time;
 // -------------- plan --------------
 B_RRT global_planner;
 DWA   local_planner;
 pointVec  obstacle;
 pointVec  path, temp_path, traj;
-bool find_path;
+bool find_path, arrive_dst;
+int turn_at_start;
 point_t mid_goal;
+double mid_goal_dist_gain;
+int goal_index;
 pair<double, vector<vector<double>>>  wAndTraj;
 double rrt_avoid_dist, rrt_boundary_expand_dist;
 
@@ -68,7 +71,7 @@ void CB_update_vel(const geometry_msgs::TwistStamped::ConstPtr& vel_msg);
 // void CB_laser(const sensor_msgs::PointCloud2::ConstPtr &scan_msg);
 void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan);
 // ******************************************** //
-void get_mid_goal(int &goal_index, const double &threshold);
+void get_mid_goal(const double &threshold);
 void display_PathandTraj(pointVec path, ros::Publisher visual_pub);
 void display_midGoal(point_t mid_goal, ros::Publisher visual_pub);
 
@@ -85,6 +88,9 @@ int main(int argc, char** argv)
     ros::param::get("boundary_expand_dist", rrt_boundary_expand_dist);
     ros::param::get("slow_down_dist", slow_down_dist);
     ros::param::get("stop_dist", stop_dist);
+    ros::param::get("start_w", start_w);
+    ros::param::get("terminal_w", terminal_w);
+    ros::param::get("mid_goal_dist_gain", mid_goal_dist_gain);
     ros::param::get("laser_topic", laser_topic);
     ros::param::get("vel_pub_topic", vel_pub_topic);
     ros::Timer publish_timer = n.createTimer(ros::Duration(0.1), CB_publishCycle);
@@ -115,8 +121,7 @@ int main(int argc, char** argv)
     self_pose = {0,0,0};
     dst_pose = {0,0,0};
     
-    int goal_index = 0;  // 用于计算局部目标点
-    double threshold = 1.5 * v_in_yaml * dwa_predict_time; // 局部目标点距离
+    double threshold = mid_goal_dist_gain * v_in_yaml * dwa_predict_time; // 局部目标点距离
     local_planner.set_v(0.0);  // DWA 线速度设为定值, init to 0
     // ------------------------------------------------------- //
 
@@ -150,7 +155,7 @@ int main(int argc, char** argv)
             tf_listener.lookupTransform("robot_"+to_string(RobotId)+"/odom", "robot_"+to_string(RobotId)+"/base", ros::Time(0), base_in_odom);
         }
         catch (tf::TransformException &ex){
-            ROS_ERROR("%s, in CB_main.", ex.what());
+            ROS_WARN("%s, in CB_main.", ex.what());
             continue;
         }
         geometry_msgs::Quaternion orientation;
@@ -164,6 +169,25 @@ int main(int argc, char** argv)
         }
         ///  DWA 选取最优角速度  ///
         // -----------------------------------------------------
+        // 开始时转向，转到再执行后续
+        if (turn_at_start){
+            double startOri_angle = atan2(path[1][1]-path[0][1], path[1][0]-path[0][0]) - self_pose[2]; // 夹角
+            if (startOri_angle > M_PI)
+                startOri_angle -= 2*M_PI;
+            else if (startOri_angle < -M_PI)
+                startOri_angle += 2*M_PI;
+            double startOri_threshold = M_PI/12; //, start_w = 0.8;
+            if (turn_at_start == 1)  // 左转
+                expected_w = start_w;
+            else if (turn_at_start == 2)  // 右转
+                expected_w = -1*start_w;
+            if (abs(startOri_angle) < startOri_threshold || abs(startOri_angle) > M_PI-startOri_threshold){
+                expected_w = 0;
+                turn_at_start = 0;
+            }
+            continue;
+        }
+
         double dstPoint_dist = hypot(dst_pose[0]-self_pose[0], dst_pose[1]-self_pose[1]); // 距离
         if (dstPoint_dist < slow_down_dist && dstPoint_dist > stop_dist){  // 减速
             expected_v = ori_sign * v_in_yaml * dstPoint_dist/slow_down_dist;
@@ -172,11 +196,11 @@ int main(int argc, char** argv)
             local_planner.set_v(expected_v);
         }
 
-        double dstPosition_angle = atan2(dst_pose[1]-self_pose[1], dst_pose[0]-self_pose[0]) - self_pose[2]; // 目标点到当前点与车头夹角
-        if (dstPosition_angle > M_PI)
-            dstPosition_angle -= 2*M_PI;
-        else if (dstPosition_angle < -M_PI)
-            dstPosition_angle += 2*M_PI;
+        // double dstPosition_angle = atan2(dst_pose[1]-self_pose[1], dst_pose[0]-self_pose[0]) - self_pose[2]; // 目标点到当前点与车头夹角
+        // if (dstPosition_angle > M_PI)
+        //     dstPosition_angle -= 2*M_PI;
+        // else if (dstPosition_angle < -M_PI)
+        //     dstPosition_angle += 2*M_PI;
         
         double dstOri_angle = dst_pose[2] - self_pose[2]; // 目标朝向与车头夹角
         if (dstOri_angle > M_PI)
@@ -184,18 +208,9 @@ int main(int argc, char** argv)
         else if (dstOri_angle < -M_PI)
             dstOri_angle += 2*M_PI;
 
-        double dstOri_threshold = M_PI/16, terminal_w = 0.8;
+        double dstOri_threshold = M_PI/16;  //, terminal_w = 0.8;
         if (dstPoint_dist < stop_dist){  // 停车距离内，停车
-            expected_v = 0;
-            local_planner.set_v(expected_v);
-            // expected_w = 0;
-            // 停车后原地转到目标朝向
-            if (dstOri_angle > dstOri_threshold)
-                expected_w = terminal_w;
-            else if (dstOri_angle < -1*dstOri_threshold)
-                expected_w = -1*terminal_w;
-            else
-                expected_w = 0;
+            arrive_dst = true;
         }
         // else if (is_forward && abs(dstPosition_angle) > M_PI/2){  // 走过点，停车
         //     expected_v = 0;
@@ -222,10 +237,23 @@ int main(int argc, char** argv)
         //     else
         //         expected_w = 0;
         // }
-        else{
+
+        if (arrive_dst){  // 停车
+            expected_v = 0;
+            local_planner.set_v(expected_v);
+            // expected_w = 0;
+            // 停车后原地转到目标朝向
+            if (dstOri_angle > dstOri_threshold)
+                expected_w = terminal_w;
+            else if (dstOri_angle < -1*dstOri_threshold)
+                expected_w = -1*terminal_w;
+            else
+                expected_w = 0;
+        }
+        else{  // DWA规划
             if (!find_path)
                 continue;
-            get_mid_goal(goal_index, threshold);
+            get_mid_goal(threshold);
             wAndTraj = local_planner.control_trajectory(self_pose, self_w, mid_goal, obstacle, 0);
             // self_w = wAndTraj.first;
             expected_w = wAndTraj.first;
@@ -254,7 +282,9 @@ void CB_publishCycle(const ros::TimerEvent& e)
 
     if (traj.size()){
         display_PathandTraj(traj, traj_pub);
+    }
 
+    if (find_path){
         geometry_msgs::Twist target_vel;
         if (abs(expected_w) >= 0.5)  // 转弯时降低线速度
             target_vel.linear.x = 0.5*expected_v;
@@ -278,23 +308,29 @@ void CB_dstPoint(const geometry_msgs::PoseStamped::ConstPtr& pose_msg)  // 目�
     dst_pose = {pose_msg->pose.position.x, pose_msg->pose.position.y, theta};
     // dst_pose = {odom_msg->pose.pose.position.x, odom_msg->pose.pose.position.y, 0};
     // expected_v = odom_msg->twist.twist.linear.x;
-    double dstPoint_ori = atan2(dst_pose[1]-self_pose[1], dst_pose[0]-self_pose[0]) - self_pose[2]; // 夹角
-    if (dstPoint_ori > M_PI)
-        dstPoint_ori -= 2*M_PI;
-    else if (dstPoint_ori < -M_PI)
-        dstPoint_ori += 2*M_PI;
-    if(abs(dstPoint_ori) > M_PI/2)
-        is_forward = false;
-    else is_forward = true;
-
-    if(is_forward) ori_sign = 1.0;
-    else ori_sign = -1.0;
-
-    expected_v = ori_sign * v_in_yaml;
-    local_planner.set_v(expected_v);  // DWA 线速度设为定值
     
+
+    // !!!!! 改为与第一段路径夹角 !!!!!
+    // double dstPoint_ori = atan2(dst_pose[1]-self_pose[1], dst_pose[0]-self_pose[0]) - self_pose[2]; // 夹角
+    // if (dstPoint_ori > M_PI)
+    //     dstPoint_ori -= 2*M_PI;
+    // else if (dstPoint_ori < -M_PI)
+    //     dstPoint_ori += 2*M_PI;
+    // if(abs(dstPoint_ori) > M_PI/2)
+    //     is_forward = false;
+    // else is_forward = true;
+
+    // if(is_forward) ori_sign = 1.0;
+    // else ori_sign = -1.0;
+
+    // expected_v = ori_sign * v_in_yaml;
+    // local_planner.set_v(expected_v);  // DWA 线速度设为定值
+    
+
     ///   RRT 规划全局路径   ///
-    find_path = false;
+    find_path = false;  // reset
+    arrive_dst = false;
+    goal_index = 0;
     // cout << "obst_size: " << obstacle.size() << endl;
     global_planner.set_boundary(min(self_pose[0], dst_pose[0])-rrt_boundary_expand_dist,   min(self_pose[1], dst_pose[1])-rrt_boundary_expand_dist,
                                                                     max(self_pose[0], dst_pose[0])+rrt_boundary_expand_dist,   max(self_pose[1], dst_pose[1])+rrt_boundary_expand_dist);
@@ -323,8 +359,46 @@ void CB_dstPoint(const geometry_msgs::PoseStamped::ConstPtr& pose_msg)  // 目�
     if (!find_path){
         ROS_WARN("Path searching failed in the condition avoid_dist >= 0.1! Please assign destination point again!");
         // cout << "Path searching failed in the condition avoid_dist >= 0.1! Please assign destination point again!" << endl;
+        return;
     }
+
+    // 判断前进还是后退
+    // !!!!! 根据与第一段路径夹角 !!!!!
+    double path_first_line_ori = atan2(path[1][1]-path[0][1], path[1][0]-path[0][0]) - self_pose[2]; // 夹角
+    if (path_first_line_ori > M_PI)
+        path_first_line_ori -= 2*M_PI;
+    else if (path_first_line_ori < -M_PI)
+        path_first_line_ori += 2*M_PI;
+    if(abs(path_first_line_ori) > M_PI/2)
+        is_forward = false;
+    else is_forward = true;
+
+    if(is_forward) ori_sign = 1.0;
+    else ori_sign = -1.0;
+
+    expected_v = ori_sign * v_in_yaml;
+    local_planner.set_v(expected_v);  // DWA 线速度设为定值
     
+    // 决定是否在运动前先转向
+    turn_at_start = 0;  // 不转
+    double startOri_threshold = M_PI/12;
+    if (is_forward){ // 前进
+        if (path_first_line_ori > startOri_threshold){
+            turn_at_start = 1;  // 左转
+        }
+        else if (path_first_line_ori < -1*startOri_threshold){
+            turn_at_start = 2;  // 右转
+        }
+    }
+    else{ // 后退
+        if (path_first_line_ori < -M_PI/2 && path_first_line_ori > -(M_PI-startOri_threshold)){
+            turn_at_start = 1;  // 左转
+        }
+        else if (path_first_line_ori > M_PI/2 && path_first_line_ori < M_PI-startOri_threshold){
+            turn_at_start = 2;  // 右转
+        }
+    }
+
     display_PathandTraj(path, path_pub);
 }
 
@@ -335,7 +409,7 @@ void  CB_update_vel(const geometry_msgs::TwistStamped::ConstPtr& vel_msg)  // �
 }
 
 
-void get_mid_goal(int &goal_index, const double &threshold)
+void get_mid_goal(const double &threshold)
 {
     // 动态选取局部目标点
     int idx = goal_index;
@@ -433,7 +507,7 @@ void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan_msg)  // 激光
                 tf_listener.transformPoint("robot_"+to_string(RobotId)+"/odom", obst_in_laser, obst_in_world);
             }
             catch (tf::TransformException &ex){
-                ROS_ERROR("%s, in CB_laser.", ex.what());
+                ROS_WARN("%s, in CB_laser.", ex.what());
                 return;
             }
 
@@ -496,7 +570,7 @@ void CB_laser(const sensor_msgs::LaserScan::ConstPtr& scan_msg)  // 激光
 //             tf_listener.transformPoint("robot_"+to_string(RobotId)+"/odom", temp_obst_xyz_in_laser, temp_obstPoint_in_odom);
 //         }
 //         catch (tf::TransformException &ex){
-//             ROS_ERROR("%s, in CB_laser.", ex.what());
+//             ROS_WARN("%s, in CB_laser.", ex.what());
 //             return;
 //         }
 

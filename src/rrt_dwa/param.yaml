@@ -1,8 +1,11 @@
 # 小车尺寸：59*48 (cm)，以激光为原点，前长17，后长42，左右对称
-RobotId: 1
+RobotId: 2
 expected_v: 0.4
 slow_down_dist: 0.5
 stop_dist: 0.2
+start_w: 0.6
+terminal_w: 0.6
+mid_goal_dist_gain: 1.8
 
 # rrt params
 N_SAMPLE: 1000
